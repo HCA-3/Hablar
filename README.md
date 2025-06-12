@@ -1,132 +1,131 @@
-from pydantic import BaseModel, EmailStr
-from datetime import datetime
-from typing import Optional, List
+# main. py
 
-class UserBase(BaseModel):
-    nombre: str
-    email: EmailStr
-    telefono: Optional[str] = None
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from sqlalchemy.orm import Session
+from typing import List, Optional
+import uvicorn
+from datetime import datetime, date
 
-class UserCreate(UserBase):
-    pass
+from database import get_db, engine
+from models import Base, Usuario, Mascota, Vuelo, Reserva
+from schemas import (
+    UsuarioCreate, UsuarioResponse, UsuarioLogin,
+    MascotaCreate, MascotaResponse,
+    VueloResponse, VueloSearch,
+    ReservaCreate, ReservaResponse
+)
+from crud import (
+    crear_usuario, obtener_usuario_por_email, verificar_password,
+    crear_mascota, obtener_mascotas_usuario,
+    buscar_vuelos, crear_reserva, obtener_reservas_usuario
+)
+from auth import crear_token_acceso, verificar_token
 
-class UserUpdate(BaseModel):
-    nombre: Optional[str] = None
-    email: Optional[EmailStr] = None
-    telefono: Optional[str] = None
+Base.metadata.create_all(bind=engine)
 
-class User(UserBase):
-    id: int
-    created_at: datetime
+app = FastAPI(
+    title="AeroMascotas API",
+    description="API para empresa de vuelos con mascotas",
+    version="1.0.0"
+)
+
+security = HTTPBearer()
+
+async def obtener_usuario_actual(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
+):
+    token = credentials.credentials
+    email = verificar_token(token)
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido"
+        )
     
-    class Config:
-        from_attributes = True
+    usuario = obtener_usuario_por_email(db, email)
+    if not usuario:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuario no encontrado"
+        )
+    return usuario
 
-class PetBase(BaseModel):
-    nombre_mascota: str
-    especie: str
-    raza: Optional[str] = None
-    peso: float
-    edad: Optional[int] = None
-    observaciones: Optional[str] = None
+@app.get("/")
+async def root():
+    return {"mensaje": "Bienvenido a AeroMascotas API"}
 
-class PetCreate(PetBase):
-    id_usuario: int
-
-class PetUpdate(BaseModel):
-    nombre_mascota: Optional[str] = None
-    especie: Optional[str] = None
-    raza: Optional[str] = None
-    peso: Optional[float] = None
-    edad: Optional[int] = None
-    observaciones: Optional[str] = None
-
-class Pet(PetBase):
-    id: int
-    id_usuario: int
-    created_at: datetime
+# Endpoints de Usuarios
+@app.post("/usuarios/registro", response_model=UsuarioResponse)
+async def registrar_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
+    # Verificar si el usuario ya existe
+    usuario_existente = obtener_usuario_por_email(db, usuario.email)
+    if usuario_existente:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El email ya está registrado"
+        )
     
-    class Config:
-        from_attributes = True
+    nuevo_usuario = crear_usuario(db, usuario)
+    return nuevo_usuario
 
-class FlightBase(BaseModel):
-    numero_vuelo: str
-    origen: str
-    destino: str
-    fecha_salida: datetime
-    fecha_llegada: datetime
-    precio_base: float
-    precio_mascota: float
-    capacidad_total: int
-    capacidad_mascotas: int
-    disponible: bool = True
-
-class FlightCreate(FlightBase):
-    pass
-
-class FlightUpdate(BaseModel):
-    numero_vuelo: Optional[str] = None
-    origen: Optional[str] = None
-    destino: Optional[str] = None
-    fecha_salida: Optional[datetime] = None
-    fecha_llegada: Optional[datetime] = None
-    precio_base: Optional[float] = None
-    precio_mascota: Optional[float] = None
-    capacidad_total: Optional[int] = None
-    capacidad_mascotas: Optional[int] = None
-    disponible: Optional[bool] = None
-
-class Flight(FlightBase):
-    id: int
-    created_at: datetime
+@app.post("/usuarios/login")
+async def login_usuario(credenciales: UsuarioLogin, db: Session = Depends(get_db)):
+    usuario = obtener_usuario_por_email(db, credenciales.email)
+    if not usuario or not verificar_password(credenciales.password, usuario.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales incorrectas"
+        )
     
-    class Config:
-        from_attributes = True
+    token = crear_token_acceso(usuario.email)
+    return {"access_token": token, "token_type": "bearer"}
 
-class FlightSearch(BaseModel):
-    origen: str
-    destino: str
-    fecha: datetime
+# Endpoints de Mascotas
+@app.post("/mascotas", response_model=MascotaResponse)
+async def registrar_mascota(
+    mascota: MascotaCreate,
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    nueva_mascota = crear_mascota(db, mascota, usuario_actual.id)
+    return nueva_mascota
 
-class ReservationBase(BaseModel):
-    id_usuario: int
-    id_vuelo: int
-    id_mascota: int
+@app.get("/mascotas", response_model=List[MascotaResponse])
+async def obtener_mis_mascotas(
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    mascotas = obtener_mascotas_usuario(db, usuario_actual.id)
+    return mascotas
 
-class ReservationCreate(ReservationBase):
-    pass
+@app.get("/vuelos/buscar", response_model=List[VueloResponse])
+async def buscar_vuelos_disponibles(
+    origen: str,
+    destino: str,
+    fecha: date,
+    db: Session = Depends(get_db)
+):
+    vuelos = buscar_vuelos(db, origen, destino, fecha)
+    return vuelos
 
-class ReservationUpdate(BaseModel):
-    estado: Optional[str] = None
+@app.post("/reservas", response_model=ReservaResponse)
+async def crear_reserva_vuelo(
+    reserva: ReservaCreate,
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    nueva_reserva = crear_reserva(db, reserva, usuario_actual.id)
+    return nueva_reserva
 
-class Reservation(ReservationBase):
-    id: int
-    codigo_reserva: str
-    estado: str
-    precio_total: float
-    fecha_reserva: datetime
-    
-    class Config:
-        from_attributes = True
+@app.get("/reservas", response_model=List[ReservaResponse])
+async def obtener_mis_reservas(
+    usuario_actual: Usuario = Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db)
+):
+    reservas = obtener_reservas_usuario(db, usuario_actual.id)
+    return reservas
 
-class PurchaseBase(BaseModel):
-    metodo_pago: str
-    referencia_pago: Optional[str] = None
-
-class PurchaseCreate(PurchaseBase):
-    id_reserva: int
-
-class PurchaseUpdate(BaseModel):
-    estado_pago: Optional[str] = None
-    referencia_pago: Optional[str] = None
-
-class Purchase(PurchaseBase):
-    id: int
-    id_reserva: int
-    estado_pago: str
-    monto: float
-    fecha_compra: datetime
-    
-    class Config:
-        from_attributes = True
-        #11
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
