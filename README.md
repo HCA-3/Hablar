@@ -1,131 +1,141 @@
-# main. py
+# readmi
 
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy.orm import Session
-from typing import List, Optional
-import uvicorn
-from datetime import datetime, date
+# AeroMascotas API
 
-from database import get_db, engine
-from models import Base, Usuario, Mascota, Vuelo, Reserva
-from schemas import (
-    UsuarioCreate, UsuarioResponse, UsuarioLogin,
-    MascotaCreate, MascotaResponse,
-    VueloResponse, VueloSearch,
-    ReservaCreate, ReservaResponse
-)
-from crud import (
-    crear_usuario, obtener_usuario_por_email, verificar_password,
-    crear_mascota, obtener_mascotas_usuario,
-    buscar_vuelos, crear_reserva, obtener_reservas_usuario
-)
-from auth import crear_token_acceso, verificar_token
+API REST para una empresa de vuelos con mascotas desarrollada con FastAPI.
 
-Base.metadata.create_all(bind=engine)
+## Características
 
-app = FastAPI(
-    title="AeroMascotas API",
-    description="API para empresa de vuelos con mascotas",
-    version="1.0.0"
-)
+- ✅ Registro y autenticación de usuarios
+- ✅ Gestión de mascotas (CRUD)
+- ✅ Búsqueda de vuelos por origen, destino y fecha
+- ✅ Sistema de reservas con verificación de disponibilidad
+- ✅ Base de datos con SQLAlchemy
+- ✅ Autenticación JWT
+- ✅ Documentación automática con Swagger
+- ✅ Preparado para despliegue en Render
 
-security = HTTPBearer()
+## Instalación
 
-async def obtener_usuario_actual(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
-):
-    token = credentials.credentials
-    email = verificar_token(token)
-    if not email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token inválido"
-        )
-    
-    usuario = obtener_usuario_por_email(db, email)
-    if not usuario:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Usuario no encontrado"
-        )
-    return usuario
+1. Clona el repositorio
+2. Instala las dependencias:
+```bash
+pip install -r requirements.txt
+```
 
-@app.get("/")
-async def root():
-    return {"mensaje": "Bienvenido a AeroMascotas API"}
+3. Crea datos de ejemplo (opcional):
+```bash
+python seed_data.py
+```
 
-# Endpoints de Usuarios
-@app.post("/usuarios/registro", response_model=UsuarioResponse)
-async def registrar_usuario(usuario: UsuarioCreate, db: Session = Depends(get_db)):
-    # Verificar si el usuario ya existe
-    usuario_existente = obtener_usuario_por_email(db, usuario.email)
-    if usuario_existente:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El email ya está registrado"
-        )
-    
-    nuevo_usuario = crear_usuario(db, usuario)
-    return nuevo_usuario
+4. Ejecuta la aplicación:
+```bash
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
 
-@app.post("/usuarios/login")
-async def login_usuario(credenciales: UsuarioLogin, db: Session = Depends(get_db)):
-    usuario = obtener_usuario_por_email(db, credenciales.email)
-    if not usuario or not verificar_password(credenciales.password, usuario.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales incorrectas"
-        )
-    
-    token = crear_token_acceso(usuario.email)
-    return {"access_token": token, "token_type": "bearer"}
+## Despliegue en Render
 
-# Endpoints de Mascotas
-@app.post("/mascotas", response_model=MascotaResponse)
-async def registrar_mascota(
-    mascota: MascotaCreate,
-    usuario_actual: Usuario = Depends(obtener_usuario_actual),
-    db: Session = Depends(get_db)
-):
-    nueva_mascota = crear_mascota(db, mascota, usuario_actual.id)
-    return nueva_mascota
+El comando de inicio para Render es:
+```bash
+uvicorn main:app --host 0.0.0.0 --port $PORT
+```
 
-@app.get("/mascotas", response_model=List[MascotaResponse])
-async def obtener_mis_mascotas(
-    usuario_actual: Usuario = Depends(obtener_usuario_actual),
-    db: Session = Depends(get_db)
-):
-    mascotas = obtener_mascotas_usuario(db, usuario_actual.id)
-    return mascotas
+Asegúrate de configurar las siguientes variables de entorno en Render:
+- `DATABASE_URL`: URL de tu base de datos PostgreSQL
+- `SECRET_KEY`: Clave secreta para JWT (genera una segura)
 
-@app.get("/vuelos/buscar", response_model=List[VueloResponse])
-async def buscar_vuelos_disponibles(
-    origen: str,
-    destino: str,
-    fecha: date,
-    db: Session = Depends(get_db)
-):
-    vuelos = buscar_vuelos(db, origen, destino, fecha)
-    return vuelos
+## Endpoints Principales
 
-@app.post("/reservas", response_model=ReservaResponse)
-async def crear_reserva_vuelo(
-    reserva: ReservaCreate,
-    usuario_actual: Usuario = Depends(obtener_usuario_actual),
-    db: Session = Depends(get_db)
-):
-    nueva_reserva = crear_reserva(db, reserva, usuario_actual.id)
-    return nueva_reserva
+### Usuarios
+- `POST /usuarios/registro` - Registrar nuevo usuario
+- `POST /usuarios/login` - Iniciar sesión
 
-@app.get("/reservas", response_model=List[ReservaResponse])
-async def obtener_mis_reservas(
-    usuario_actual: Usuario = Depends(obtener_usuario_actual),
-    db: Session = Depends(get_db)
-):
-    reservas = obtener_reservas_usuario(db, usuario_actual.id)
-    return reservas
+### Mascotas
+- `POST /mascotas` - Registrar mascota
+- `GET /mascotas` - Obtener mis mascotas
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+### Vuelos
+- `GET /vuelos/buscar?origen=Madrid&destino=Barcelona&fecha=2024-01-15` - Buscar vuelos
+
+### Reservas
+- `POST /reservas` - Crear reserva
+- `GET /reservas` - Obtener mis reservas
+
+## Documentación
+
+Una vez ejecutada la aplicación, puedes acceder a:
+- Documentación Swagger: `http://localhost:8000/docs`
+- Documentación ReDoc: `http://localhost:8000/redoc`
+
+## Modelos de Datos
+
+### Usuario
+- Información personal (nombre, apellido, email, teléfono)
+- Autenticación segura con hash de contraseña
+- Relación con mascotas y reservas
+
+### Mascota
+- Información de la mascota (nombre, especie, raza, edad, peso)
+- Vinculada a un propietario
+- Observaciones especiales
+
+### Vuelo
+- Información del vuelo (origen, destino, fechas, horarios)
+- Precios diferenciados (base + mascota)
+- Control de capacidad
+
+### Reserva
+- Código único de reserva
+- Vincula usuario, vuelo y mascota
+- Control de estado y precio total
+
+## Ejemplo de Uso
+
+1. Registrar usuario:
+```json
+POST /usuarios/registro
+{
+  "nombre": "Juan",
+  "apellido": "Pérez",
+  "email": "juan@email.com",
+  "telefono": "+34123456789",
+  "password": "mipassword123"
+}
+```
+
+2. Iniciar sesión:
+```json
+POST /usuarios/login
+{
+  "email": "juan@email.com",
+  "password": "mipassword123"
+}
+```
+
+3. Registrar mascota:
+```json
+POST /mascotas
+{
+  "nombre": "Max",
+  "especie": "perro",
+  "raza": "Golden Retriever",
+  "edad": 3,
+  "peso": 25.5,
+  "observaciones": "Muy tranquilo durante los viajes"
+}
+```
+
+4. Buscar vuelos:
+```
+GET /vuelos/buscar?origen=Madrid&destino=Barcelona&fecha=2024-01-15
+```
+
+5. Crear reserva:
+```json
+POST /reservas
+{
+  "vuelo_id": 1,
+  "mascota_id": 1,
+  "observaciones": "Primera vez que viaja"
+}
+```
