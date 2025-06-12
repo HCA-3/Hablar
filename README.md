@@ -2,7 +2,6 @@ from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from typing import Optional, List
 
-# User schemas
 class UserBase(BaseModel):
     nombre: str
     email: EmailStr
@@ -23,7 +22,6 @@ class User(UserBase):
     class Config:
         from_attributes = True
 
-# Pet schemas
 class PetBase(BaseModel):
     nombre_mascota: str
     especie: str
@@ -51,7 +49,6 @@ class Pet(PetBase):
     class Config:
         from_attributes = True
 
-# Flight schemas
 class FlightBase(BaseModel):
     numero_vuelo: str
     origen: str
